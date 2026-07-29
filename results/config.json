@@ -1,0 +1,18 @@
+{
+  "modulus": 17,
+  "d_model": 64,
+  "n_heads": 4,
+  "n_layers": 2,
+  "d_mlp": 128,
+  "mlp_groups": 8,
+  "steps": 5000,
+  "checkpoint_every": 100,
+  "learning_rate": 0.003,
+  "weight_decay": 0.01,
+  "train_fraction": 1.0,
+  "seeds": [
+    0,
+    1,
+    2
+  ]
+}
