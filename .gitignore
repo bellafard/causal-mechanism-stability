@@ -7,3 +7,4 @@ grokking_pilot/
 grokking_pilot_slow/
 grokking_results/
 .mplconfig/
+.gitignore
