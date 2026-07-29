@@ -1,5 +1,6 @@
 {
   "config": {
+    "condition": "full_table",
     "modulus": 17,
     "d_model": 64,
     "n_heads": 4,
@@ -20,24 +21,36 @@
   "per_seed": [
     {
       "seed": 0,
+      "behavior_metric": "full_table_accuracy",
+      "behavior_threshold": 0.99,
       "behavior_step": 100,
+      "training_step": 100,
       "representation_step": 400,
       "mechanism_step": 100,
-      "final_test_accuracy": 1.0
+      "final_behavior_accuracy": 1.0,
+      "final_train_accuracy": 1.0
     },
     {
       "seed": 1,
+      "behavior_metric": "full_table_accuracy",
+      "behavior_threshold": 0.99,
       "behavior_step": 100,
+      "training_step": 100,
       "representation_step": 500,
       "mechanism_step": 100,
-      "final_test_accuracy": 1.0
+      "final_behavior_accuracy": 1.0,
+      "final_train_accuracy": 1.0
     },
     {
       "seed": 2,
+      "behavior_metric": "full_table_accuracy",
+      "behavior_threshold": 0.99,
       "behavior_step": 100,
+      "training_step": 100,
       "representation_step": 500,
       "mechanism_step": 100,
-      "final_test_accuracy": 1.0
+      "final_behavior_accuracy": 1.0,
+      "final_train_accuracy": 1.0
     }
   ]
 }

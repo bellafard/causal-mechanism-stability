@@ -1,4 +1,5 @@
 {
+  "condition": "full_table",
   "modulus": 17,
   "d_model": 64,
   "n_heads": 4,

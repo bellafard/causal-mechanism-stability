@@ -26,6 +26,7 @@ from torch.nn import functional as F
 
 @dataclass
 class Config:
+    condition: str = "full_table"
     modulus: int = 17
     d_model: int = 64
     n_heads: int = 4
@@ -38,6 +39,34 @@ class Config:
     weight_decay: float = 0.01
     train_fraction: float = 1.0
     seeds: tuple[int, ...] = (0, 1, 2)
+
+    @property
+    def has_heldout(self) -> bool:
+        return self.train_fraction < 1.0
+
+    @property
+    def probe_split(self) -> str:
+        return "heldout" if self.has_heldout else "full_table"
+
+    @property
+    def behavior_threshold(self) -> float:
+        return 0.95 if self.has_heldout else 0.99
+
+
+def config_for(condition: str) -> Config:
+    if condition == "full_table":
+        return Config()
+    if condition == "grokking":
+        return Config(
+            condition="grokking",
+            steps=50000,
+            checkpoint_every=500,
+            learning_rate=0.0003,
+            weight_decay=1.0,
+            train_fraction=0.5,
+            seeds=(0,),
+        )
+    raise ValueError(f"Unknown condition: {condition}")
 
 
 class CausalSelfAttention(nn.Module):
@@ -135,14 +164,15 @@ def make_data(config: Config, seed: int) -> tuple[torch.Tensor, ...]:
     split = int(len(pairs) * config.train_fraction)
 
     def encode(items: list[tuple[int, int]]) -> tuple[torch.Tensor, torch.Tensor]:
-        x = torch.tensor([[a, b, config.modulus] for a, b in items], dtype=torch.long)
+        x = torch.tensor(
+            [[a, b, config.modulus] for a, b in items], dtype=torch.long
+        ).reshape(-1, 3)
         y = torch.tensor([(a + b) % config.modulus for a, b in items], dtype=torch.long)
         return x, y
 
-    # Evaluation covers the complete truth table. This project asks when the
-    # mechanism stabilizes after exhaustive behavioral mastery, not whether the
-    # model generalizes beyond its training distribution.
-    return *encode(pairs[:split]), *encode(pairs)
+    train = pairs[:split]
+    heldout = pairs[split:]
+    return *encode(train), *encode(heldout), *encode(pairs)
 
 
 def accuracy_and_loss(
@@ -170,15 +200,27 @@ def evaluate_checkpoint(
     final_representations: list[torch.Tensor],
     train_x: torch.Tensor,
     train_y: torch.Tensor,
-    test_x: torch.Tensor,
-    test_y: torch.Tensor,
+    heldout_x: torch.Tensor,
+    heldout_y: torch.Tensor,
+    full_table_x: torch.Tensor,
+    full_table_y: torch.Tensor,
 ) -> tuple[dict[str, float], list[dict[str, float]]]:
     model.load_state_dict(state)
     model.eval()
     train_acc, train_loss = accuracy_and_loss(model, train_x, train_y)
-    test_acc, test_loss = accuracy_and_loss(model, test_x, test_y)
+    full_table_acc, full_table_loss = accuracy_and_loss(
+        model, full_table_x, full_table_y
+    )
+    if model.config.has_heldout:
+        heldout_acc, heldout_loss = accuracy_and_loss(model, heldout_x, heldout_y)
+        probe_x, probe_y = heldout_x, heldout_y
+        probe_acc, probe_loss = heldout_acc, heldout_loss
+    else:
+        heldout_acc, heldout_loss = float("nan"), float("nan")
+        probe_x, probe_y = full_table_x, full_table_y
+        probe_acc, probe_loss = full_table_acc, full_table_loss
     with torch.no_grad():
-        _, acts = model(test_x)
+        _, acts = model(probe_x)
     ckas = [
         centered_cka(acts[f"layer_{layer}"][:, -1], final_representations[layer])
         for layer in range(model.config.n_layers)
@@ -188,9 +230,9 @@ def evaluate_checkpoint(
     for layer in range(model.config.n_layers):
         for head in range(model.config.n_heads):
             ablated_acc, ablated_loss = accuracy_and_loss(
-                model, test_x, test_y, ("head", layer, head)
+                model, probe_x, probe_y, ("head", layer, head)
             )
-            delta_loss = ablated_loss - test_loss
+            delta_loss = ablated_loss - probe_loss
             importance.append(delta_loss)
             intervention_rows.append(
                 {
@@ -198,14 +240,14 @@ def evaluate_checkpoint(
                     "layer": layer,
                     "index": head,
                     "delta_loss": delta_loss,
-                    "delta_accuracy": test_acc - ablated_acc,
+                    "delta_accuracy": probe_acc - ablated_acc,
                 }
             )
         for group in range(model.config.mlp_groups):
             ablated_acc, ablated_loss = accuracy_and_loss(
-                model, test_x, test_y, ("mlp", layer, group)
+                model, probe_x, probe_y, ("mlp", layer, group)
             )
-            delta_loss = ablated_loss - test_loss
+            delta_loss = ablated_loss - probe_loss
             importance.append(delta_loss)
             intervention_rows.append(
                 {
@@ -213,14 +255,16 @@ def evaluate_checkpoint(
                     "layer": layer,
                     "index": group,
                     "delta_loss": delta_loss,
-                    "delta_accuracy": test_acc - ablated_acc,
+                    "delta_accuracy": probe_acc - ablated_acc,
                 }
             )
     metrics = {
         "train_accuracy": train_acc,
-        "test_accuracy": test_acc,
         "train_loss": train_loss,
-        "test_loss": test_loss,
+        "heldout_accuracy": heldout_acc,
+        "heldout_loss": heldout_loss,
+        "full_table_accuracy": full_table_acc,
+        "full_table_loss": full_table_loss,
         "mean_cka_to_final": float(np.mean(ckas)),
     }
     for index, value in enumerate(importance):
@@ -241,7 +285,14 @@ def first_stable_step(
 def run_seed(config: Config, seed: int, output: Path) -> list[dict[str, float]]:
     torch.manual_seed(seed)
     np.random.seed(seed)
-    train_x, train_y, test_x, test_y = make_data(config, seed)
+    (
+        train_x,
+        train_y,
+        heldout_x,
+        heldout_y,
+        full_table_x,
+        full_table_y,
+    ) = make_data(config, seed)
     model = TinyTransformer(config)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
@@ -264,8 +315,9 @@ def run_seed(config: Config, seed: int, output: Path) -> list[dict[str, float]]:
 
     model.load_state_dict(checkpoints[-1][1])
     model.eval()
+    probe_x = heldout_x if config.has_heldout else full_table_x
     with torch.no_grad():
-        _, final_acts = model(test_x)
+        _, final_acts = model(probe_x)
     final_representations = [
         final_acts[f"layer_{layer}"][:, -1].clone()
         for layer in range(config.n_layers)
@@ -275,12 +327,22 @@ def run_seed(config: Config, seed: int, output: Path) -> list[dict[str, float]]:
     all_interventions: list[dict[str, float]] = []
     for step, state in checkpoints:
         metrics, interventions = evaluate_checkpoint(
-            model, state, final_representations, train_x, train_y, test_x, test_y
+            model,
+            state,
+            final_representations,
+            train_x,
+            train_y,
+            heldout_x,
+            heldout_y,
+            full_table_x,
+            full_table_y,
         )
         metrics.update({"seed": seed, "step": step})
         rows.append(metrics)
         for intervention in interventions:
-            intervention.update({"seed": seed, "step": step})
+            intervention.update(
+                {"seed": seed, "step": step, "probe_split": config.probe_split}
+            )
             all_interventions.append(intervention)
 
     write_csv(output / f"metrics_seed_{seed}.csv", rows)
@@ -290,7 +352,9 @@ def run_seed(config: Config, seed: int, output: Path) -> list[dict[str, float]]:
 
 def write_csv(path: Path, rows: list[dict]) -> None:
     with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer = csv.DictWriter(
+            handle, fieldnames=list(rows[0]), lineterminator="\n"
+        )
         writer.writeheader()
         writer.writerows(rows)
 
@@ -308,7 +372,13 @@ def summarize_and_plot(
     config: Config, runs: dict[int, list[dict[str, float]]], output: Path
 ) -> dict:
     steps = np.array([row["step"] for row in next(iter(runs.values()))])
-    acc = np.array([[row["test_accuracy"] for row in rows] for rows in runs.values()])
+    behavior_field = (
+        "heldout_accuracy" if config.has_heldout else "full_table_accuracy"
+    )
+    acc = np.array([[row[behavior_field] for row in rows] for rows in runs.values()])
+    train_acc = np.array(
+        [[row["train_accuracy"] for row in rows] for rows in runs.values()]
+    )
     cka = np.array([[row["mean_cka_to_final"] for row in rows] for rows in runs.values()])
     n_components = config.n_layers * (config.n_heads + config.mlp_groups)
     importance_keys = [f"component_{i}_importance" for i in range(n_components)]
@@ -326,13 +396,18 @@ def summarize_and_plot(
     mechanism_similarity = np.array(mechanism_similarity)
 
     fig, axes = plt.subplots(1, 3, figsize=(12, 3.4), sharex=True)
+    behavior_label = (
+        "Held-out accuracy" if config.has_heldout else "Full-table accuracy"
+    )
     panels = [
-        (acc, "Accuracy on complete truth table", (0, 1.03)),
+        (acc, behavior_label, (0, 1.03)),
         (cka, "Representation similarity to final (CKA)", (0, 1.03)),
         (mechanism_similarity, "Causal intervention profile similarity to final", (-1.03, 1.03)),
     ]
-    thresholds = (0.99, 0.95, 0.90)
-    for axis, (values, label, ylim), threshold in zip(axes, panels, thresholds):
+    thresholds = (config.behavior_threshold, 0.95, 0.90)
+    for panel_index, (axis, (values, label, ylim), threshold) in enumerate(
+        zip(axes, panels, thresholds)
+    ):
         mean = values.mean(0)
         spread = values.std(0)
         axis.plot(steps, mean, color="#d97757", linewidth=2)
@@ -343,6 +418,16 @@ def summarize_and_plot(
         axis.set_ylim(*ylim)
         axis.set_xscale("symlog", linthresh=100)
         axis.grid(alpha=0.2)
+        if panel_index == 0 and config.has_heldout:
+            axis.plot(
+                steps,
+                train_acc.mean(0),
+                color="#3f6f8f",
+                linewidth=1.6,
+                linestyle=":",
+                label="Training accuracy",
+            )
+            axis.legend(frameon=False, loc="lower right")
     fig.tight_layout()
     fig.savefig(output / "stability_timeline.png", dpi=220)
     fig.savefig(output / "stability_timeline.pdf")
@@ -359,14 +444,20 @@ def summarize_and_plot(
         per_seed.append(
             {
                 "seed": seed,
-                "behavior_step": first_stable_step(rows, "test_accuracy", 0.99),
+                "behavior_metric": behavior_field,
+                "behavior_threshold": config.behavior_threshold,
+                "behavior_step": first_stable_step(
+                    rows, behavior_field, config.behavior_threshold
+                ),
+                "training_step": first_stable_step(rows, "train_accuracy", 0.99),
                 "representation_step": first_stable_step(
                     rows, "mean_cka_to_final", 0.95
                 ),
                 "mechanism_step": first_stable_step(
                     mech_rows, "mechanism_similarity", 0.9
                 ),
-                "final_test_accuracy": rows[-1]["test_accuracy"],
+                "final_behavior_accuracy": rows[-1][behavior_field],
+                "final_train_accuracy": rows[-1]["train_accuracy"],
             }
         )
     summary = {"config": asdict(config), "per_seed": per_seed}
@@ -377,15 +468,25 @@ def summarize_and_plot(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--condition",
+        choices=("full_table", "grokking"),
+        default="full_table",
+        help="Full-table control or held-out grokking experiment",
+    )
     parser.add_argument("--quick", action="store_true", help="One short smoke-test run")
     parser.add_argument("--output", type=Path, default=Path("results"))
     parser.add_argument("--steps", type=int)
     parser.add_argument("--seeds", type=int, nargs="+")
+    parser.add_argument("--train-fraction", type=float)
+    parser.add_argument("--learning-rate", type=float)
+    parser.add_argument("--weight-decay", type=float)
+    parser.add_argument("--checkpoint-every", type=int)
     parser.add_argument(
         "--plot-only", action="store_true", help="Regenerate figures from saved metrics"
     )
     args = parser.parse_args()
-    config = Config()
+    config = config_for(args.condition)
     if args.quick:
         config.steps = 100
         config.checkpoint_every = 50
@@ -394,6 +495,16 @@ def main() -> None:
         config.steps = args.steps
     if args.seeds is not None:
         config.seeds = tuple(args.seeds)
+    if args.train_fraction is not None:
+        if not 0.0 < args.train_fraction <= 1.0:
+            parser.error("--train-fraction must be in (0, 1]")
+        config.train_fraction = args.train_fraction
+    if args.learning_rate is not None:
+        config.learning_rate = args.learning_rate
+    if args.weight_decay is not None:
+        config.weight_decay = args.weight_decay
+    if args.checkpoint_every is not None:
+        config.checkpoint_every = args.checkpoint_every
     args.output.mkdir(parents=True, exist_ok=True)
     if args.plot_only:
         with (args.output / "config.json").open() as handle:

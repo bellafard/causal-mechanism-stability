@@ -1,0 +1,32 @@
+{
+  "config": {
+    "condition": "grokking",
+    "modulus": 17,
+    "d_model": 64,
+    "n_heads": 4,
+    "n_layers": 2,
+    "d_mlp": 128,
+    "mlp_groups": 8,
+    "steps": 50000,
+    "checkpoint_every": 500,
+    "learning_rate": 0.0003,
+    "weight_decay": 1.0,
+    "train_fraction": 0.5,
+    "seeds": [
+      0
+    ]
+  },
+  "per_seed": [
+    {
+      "seed": 0,
+      "behavior_metric": "heldout_accuracy",
+      "behavior_threshold": 0.95,
+      "behavior_step": 33500,
+      "training_step": 500,
+      "representation_step": 50000,
+      "mechanism_step": 14000,
+      "final_behavior_accuracy": 0.9793103337287903,
+      "final_train_accuracy": 1.0
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "condition": "grokking",
+  "modulus": 17,
+  "d_model": 64,
+  "n_heads": 4,
+  "n_layers": 2,
+  "d_mlp": 128,
+  "mlp_groups": 8,
+  "steps": 50000,
+  "checkpoint_every": 500,
+  "learning_rate": 0.0003,
+  "weight_decay": 1.0,
+  "train_fraction": 0.5,
+  "seeds": [
+    0
+  ]
+}
