@@ -20,8 +20,6 @@ measures:
 The key comparison is the first checkpoint after which each measure never falls
 below its prespecified threshold. The experiment therefore tests whether exhaustive behavioral mastery precedes internal stabilization.
 
-## Why this is interpretability
-
 Attention head and grouped MLP ablations are interventions. They ask which components are necessary for the trained computation, not merely which activations correlate with the answer. Tracking these interventions through learning distinguishes a stable causal profile from a transient correlate.
 
 ## Run
