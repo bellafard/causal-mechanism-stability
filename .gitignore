@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+.pycache/
+results/
+quick_results/
+pilot_results/
+.mplconfig/
