@@ -101,8 +101,6 @@ the reported timing as a population estimate.
 - Similar causal importance profiles do not prove identical algorithms.
 - The final checkpoint is a practical reference, not ground truth.
 
-<!-- The natural next step is activation patching on specific token positions, followed by analysis of whether the same causal subspace persists across seeds. -->
-
 ## Result
 
 Across three seeds, accuracy on the complete truth table and the causal intervention profile were stable by step 100, the first checkpoint after initialization. Representational similarity reached its prespecified stability criterion later, at step 400 in one seed and step 500 in two seeds.
