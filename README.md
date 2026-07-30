@@ -88,15 +88,15 @@ For the checkpoint and every checkpoint that follows:
 
 The full-table thresholds were declared before its final three-seed run. The 0.95
 held-out threshold was selected after a pilot and is therefore exploratory, not
-preregistered. The one-seed grokking result should be replicated before treating
-the reported timing as a population estimate.
+preregistered. The grokking condition has not yet been replicated across seeds,
+so its reported timing should be treated as exploratory.
 
 ## Limitations
 
 - Modular addition is a controlled algorithmic task, not language modeling.
 - The full-table control addresses mastery, not generalization.
-- The grokking result currently contains one seed and should be treated as a case
-  study until replicated.
+- The grokking condition has not yet been replicated across seeds and should be
+  treated as a case study.
 - Component ablation is coarse and can miss distributed or redundant mechanisms.
 - Similar causal importance profiles do not prove identical algorithms.
 - The final checkpoint is a practical reference, not ground truth.
@@ -115,5 +115,8 @@ profile stabilized at step 14,000, held-out accuracy remained above 95% from ste
 50,000-step endpoint.
 
 ![Grokking stability timeline](grokking_50pct_results/stability_timeline.png)
+
+This ordering was observed in one run and is a hypothesis for replication, not
+evidence of a general sequence.
 
 See [RESULTS.md](RESULTS.md) for the concise report.

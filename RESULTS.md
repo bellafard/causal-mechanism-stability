@@ -6,7 +6,10 @@ A two layer transformer learned addition modulo 17 under two data regimes. In th
 
 In a separate 50% training split, training accuracy stabilized at step 500 but held-out accuracy did not remain above 95% until step 33,500. The causal intervention profile stabilized at step 14,000, before held-out behavior, while representation geometry continued changing through the 50,000-step endpoint.
 
-These results show that behavioral, causal, and representational clocks can separate, but their ordering depends on whether behavior means exhaustive mastery or held-out generalization.
+Across these runs, the three measures crossed their stability thresholds at
+different times. The ordering in the full-table control repeated across three
+seeds; the ordering in the held-out condition remains exploratory until it is
+replicated across seeds.
 
 ## Relation to grokking
 
@@ -63,10 +66,19 @@ The dotted blue curve is training accuracy. The orange curve is accuracy on held
 
 In the control, the model's representation continued to approach its final geometry for several hundred steps after it answered every possible input correctly. Yet the relative causal importance assigned to broad components was already highly correlated with the final model.
 
-In the held-out condition, the causal profile became final-like well before delayed generalization, while the residual representation continued changing afterward. This suggests that coarse causal allocation can be an earlier progress measure than held-out behavior, even though the representational geometry is not yet stable.
+In the held-out run, the causal profile came to resemble that of the final model
+before delayed generalization, while the residual representation continued
+changing afterward. This provides a concrete hypothesis for replication: coarse
+causal allocation may become stable before held-out behavior even while
+representation geometry is still changing.
 
-<!-- ## What this does not establish -->
+## Limitations
 
-The intervention is deliberately simple. Stable component importance does not prove that the implemented algorithm is unchanged. Ablation can miss redundancy, interactions among components, and changes within an MLP group. CKA also measures representation geometry rather than semantic identity. The grokking condition currently has one seed, and the 50% split was selected after a 40% pilot failed to generalize within the training budget.
+The intervention is deliberately simple. Stable component importance does not
+prove that the implemented algorithm is unchanged. Ablation can miss redundancy,
+interactions among components, and changes within an MLP group. CKA also measures
+representation geometry rather than semantic identity. The grokking condition
+has not yet been replicated across seeds, and the 50% split was selected after a
+40% pilot failed to generalize within the training budget.
 
 A natural follow up would use activation patching to localize information by position and layer, then test whether the causal subspace itself remains stable across checkpoints and seeds.
